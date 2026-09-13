@@ -8,5 +8,13 @@
     "directory": "./public",
     "binding": "ASSETS",
     "run_worker_first": ["/api/*"]
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "knot-timecard-db",
+      "database_id": "136612ea-35a8-4c25-a4c8-57856071484d",
+      "migrations_dir": "migrations"
+    }
+  ]
 }
