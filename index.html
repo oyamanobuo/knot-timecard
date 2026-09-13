@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KNOT TIME CARD v1</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#111;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif}
+header{padding:20px;text-align:center;border-bottom:1px solid #333}h1{font-size:22px;margin:0 0 8px}.status{font-size:14px}
+.ok{color:#55d88a}.ng{color:#ff6b6b}.warn{color:#ffd166}
+main{max-width:700px;margin:auto;padding:20px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.card,.panel{background:#1c1c1c;border:1px solid #333;border-radius:14px;padding:18px}.card{cursor:pointer;text-align:center}.avatar{width:72px;height:72px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:28px}
+.name{font-size:18px}.sub{font-size:13px;color:#aaa;margin-top:4px}
+button{width:100%;padding:16px;border:0;border-radius:10px;background:#fff;color:#111;font-size:18px;font-weight:700;margin-top:10px;cursor:pointer}
+button.secondary{background:#333;color:#fff}button.danger{background:#4a2020;color:#fff}
+.pin{font-size:30px;letter-spacing:12px;text-align:center;height:48px;border:0;border-bottom:1px solid #666;background:transparent;color:#fff;width:100%;outline:none}
+.keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:15px}.keypad button{margin:0;background:#292929;color:#fff}
+.hidden{display:none}.back{margin-bottom:14px;color:#aaa;cursor:pointer}.bigtime{text-align:center;font-size:42px;font-variant-numeric:tabular-nums;margin:15px 0}
+.log{display:flex;justify-content:space-between;border-bottom:1px solid #333;padding:12px 0;font-size:14px}
+small{color:#999}.notice{padding:14px;border-radius:10px;background:#242424;margin:12px 0;line-height:1.5}
+</style>
+</head>
+<body>
+<header>
+<h1>KNOT TIME CARD <small>v1</small></h1>
+<div id="network" class="status">店舗ネットワーク確認中…</div>
+</header>
+<main>
+<section id="home">
+<div class="notice">店舗Wi‑Fiからのアクセスだけを打刻対象にする設計です。現在のV1は、サーバー側APIに登録した店舗IPを照合します。</div>
+<div id="employees" class="grid"></div>
+</section>
+
+<section id="pinScreen" class="hidden">
+<div class="back" onclick="showHome()">← 戻る</div>
+<div class="panel">
+<div id="selectedName" style="text-align:center;font-size:22px;margin-bottom:18px"></div>
+<input id="pinDisplay" class="pin" readonly placeholder="PIN">
+<div class="keypad" id="keypad"></div>
+<button class="secondary" onclick="clearPin()">クリア</button>
+<div id="pinError" class="status ng" style="text-align:center;margin-top:12px"></div>
+</div>
+</section>
+
+<section id="workScreen" class="hidden">
+<div class="back" onclick="showHome()">← 戻る</div>
+<div class="panel">
+<div id="workName" style="text-align:center;font-size:22px"></div>
+<div id="clock" class="bigtime"></div>
+<div id="currentStatus" class="notice" style="text-align:center"></div>
+<button id="punchBtn" onclick="punch()">出勤する</button>
+<button class="secondary" onclick="showHome()">キャンセル</button>
+</div>
+<div class="panel" style="margin-top:14px">
+<h3>この日の打刻</h3><div id="todayLogs"></div>
+</div>
+</section>
+</main>
+<script>
+const API_BASE = ""; // Cloudflare Worker等を別URLにする場合はここに設定
+const DEMO_EMPLOYEES = [
+  {id:"tanaka",name:"田中",initial:"田"},
+  {id:"sato",name:"佐藤",initial:"佐"},
+  {id:"yamada",name:"山",initial:"山"},
+  {id:"oyama",name:"大山",initial:"大"}
+];
+let employees = DEMO_EMPLOYEES;
+let selected = null, pin = "", session = null;
+
+function $(id){return document.getElementById(id)}
+function show(id){["home","pinScreen","workScreen"].forEach(x=>$(x).classList.toggle("hidden",x!==id))}
+function showHome(){selected=null;pin="";$("pinDisplay").value="";$("pinError").textContent="";show("home")}
+function renderEmployees(){
+  $("employees").innerHTML=employees.map(e=>`<div class="card" onclick="selectEmployee('${e.id}')"><div class="avatar">${e.initial}</div><div class="name">${e.name}</div><div class="sub">タップして打刻</div></div>`).join("");
+}
+function selectEmployee(id){selected=employees.find(e=>e.id===id);pin="";$("selectedName").textContent=selected.name+"さん";$("pinDisplay").value="";$("pinError").textContent="";show("pinScreen");renderKeys()}
+function renderKeys(){
+  $("keypad").innerHTML=["1","2","3","4","5","6","7","8","9","","0","⌫"].map(k=>k?`<button onclick="key('${k}')">${k}</button>`:"<div></div>").join("");
+}
+function key(k){
+ if(k==="⌫") pin=pin.slice(0,-1); else if(pin.length<4) pin+=k;
+ $("pinDisplay").value="●".repeat(pin.length);
+ if(pin.length===4) verifyPin();
+}
+function clearPin(){pin="";$("pinDisplay").value="";$("pinError").textContent=""}
+async function verifyPin(){
+ try{
+   const r=await fetch(API_BASE+"/api/auth",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({employeeId:selected.id,pin})});
+   const d=await r.json();
+   if(!r.ok||!d.ok){$("pinError").textContent=d.message||"PINが違います";return}
+   session=d.token; $("workName").textContent=selected.name+"さん"; await loadStatus(); show("workScreen");
+ }catch(e){
+   $("pinError").textContent="サーバーに接続できません。V1はAPI設定が必要です。";
+ }
+}
+async function loadStatus(){
+ try{
+  const r=await fetch(API_BASE+"/api/status?employeeId="+encodeURIComponent(selected.id),{headers:{Authorization:"Bearer "+session}});
+  const d=await r.json(); $("currentStatus").textContent=d.status==="working"?"現在：出勤中":"現在：退勤中";
+  $("punchBtn").textContent=d.status==="working"?"退勤する":"出勤する"; renderLogs(d.logs||[]);
+ }catch(e){$("currentStatus").textContent="状態を取得できません";}
+}
+async function punch(){
+ try{
+  const r=await fetch(API_BASE+"/api/punch",{method:"POST",headers:{"content-type":"application/json",Authorization:"Bearer "+session},body:JSON.stringify({employeeId:selected.id})});
+  const d=await r.json(); if(!r.ok){alert(d.message||"打刻できません");return}
+  await loadStatus();
+ }catch(e){alert("サーバーに接続できません")}
+}
+function renderLogs(logs){$("todayLogs").innerHTML=logs.length?logs.map(x=>`<div class="log"><span>${x.type==="in"?"出勤":"退勤"}</span><b>${x.time}</b></div>`).join(""):"<small>本日の記録なし</small>"}
+function updateClock(){$("clock").textContent=new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}
+async function checkNetwork(){
+ try{const r=await fetch(API_BASE+"/api/network");const d=await r.json();$("network").textContent=d.allowed?"● 店舗ネットワーク確認済み":"● 店舗ネットワーク外";$("network").className="status "+(d.allowed?"ok":"ng")}
+ catch(e){$("network").textContent="● ネットワーク確認API未接続";$("network").className="status warn"}
+}
+renderEmployees();renderKeys();updateClock();setInterval(updateClock,1000);checkNetwork();
+</script>
+</body>
+</html>
