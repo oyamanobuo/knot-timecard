@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>KNOT タイムカード</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;color:#111;background:#f5f5f5}
+*{box-sizing:border-box}body{margin:0}.wrap{max-width:720px;margin:auto;padding:20px 14px 40px}
+h1{font-size:24px;margin:8px 0 4px}.sub{color:#666;font-size:13px;margin-bottom:18px}
+.panel{background:#fff;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 2px 10px #00000012}
+.status{display:flex;gap:8px;align-items:center;font-size:14px}.dot{width:10px;height:10px;border-radius:50%;background:#999}.ok{background:#20a05a}.ng{background:#d33}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.emp{border:1px solid #ddd;border-radius:14px;background:#fff;padding:16px;text-align:center;cursor:pointer;font-size:18px}.emp small{display:block;color:#777;font-size:12px;margin-top:5px}.emp:disabled{opacity:.45;cursor:not-allowed}
+button{border:0;border-radius:12px;padding:12px 16px;font-size:16px;cursor:pointer}.primary{background:#111;color:#fff}.secondary{background:#eee;color:#111}.danger{background:#b00020;color:#fff}.row{display:flex;gap:8px;flex-wrap:wrap}
+#modal{position:fixed;inset:0;background:#0008;display:none;align-items:center;justify-content:center;padding:20px}.modal{background:#fff;border-radius:18px;padding:20px;width:min(420px,100%)}.modal h2{margin-top:0}.pin{width:100%;font-size:28px;letter-spacing:8px;text-align:center;padding:12px;border:1px solid #ccc;border-radius:12px}.msg{min-height:20px;color:#b00020;font-size:13px;margin:8px 0}
+.log{font-size:13px;color:#555;white-space:pre-wrap}.notice{font-size:12px;color:#777;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>KNOT タイムカード</h1>
+  <div class="sub">V1.1 テスト版</div>
+
+  <div class="panel">
+    <div class="status"><span id="dot" class="dot"></span><span id="networkText">ネットワーク確認中…</span></div>
+    <div id="ipText" class="notice" style="margin-top:8px"></div>
+  </div>
+
+  <div class="panel">
+    <h2 style="font-size:18px;margin-top:0">スタッフを選択</h2>
+    <div id="employees" class="grid"></div>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <button class="secondary" onclick="checkNetwork()">ネットワーク再確認</button>
+      <button class="secondary" onclick="checkStatus()">状態確認</button>
+    </div>
+    <div id="log" class="log" style="margin-top:12px"></div>
+  </div>
+
+  <div class="panel notice">
+    <b>現在のテスト仕様</b><br>
+    ・店舗回線からのアクセスだけを許可するテスト<br>
+    ・スタッフごとに4桁PINで認証<br>
+    ・打刻データはまだ永続保存していません（V1.1）<br>
+    ・本番ではD1へ保存し、修正履歴・給与計算・CSV出力を追加します
+  </div>
+</div>
+
+<div id="modal">
+  <div class="modal">
+    <h2 id="modalTitle">PIN入力</h2>
+    <input id="pin" class="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••">
+    <div id="msg" class="msg"></div>
+    <div class="row">
+      <button class="primary" onclick="loginAndPunch()">打刻する</button>
+      <button class="secondary" onclick="closeModal()">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const employees = [
+  {id:"tanaka", name:"田中"},
+  {id:"sato", name:"佐藤"},
+  {id:"yamada", name:"山田"},
+  {id:"oyama", name:"大山"}
+];
+let selected = null;
+
+function $(id){return document.getElementById(id)}
+function log(t){$("log").textContent = new Date().toLocaleString("ja-JP") + "\n" + t}
+
+function render(){
+  $("employees").innerHTML = employees.map(e => `<button class="emp" onclick="openModal('${e.id}')">${e.name}<small>タップして打刻</small></button>`).join("");
+}
+
+async function checkNetwork(){
+  try{
+    const r = await fetch("/api/network", {cache:"no-store"});
+    const d = await r.json();
+    $("dot").className = "dot " + (d.allowed ? "ok" : "ng");
+    $("networkText").textContent = d.allowed ? "店舗ネットワーク：OK" : "店舗ネットワーク：NG";
+    $("ipText").textContent = `検出IP: ${d.clientIp || "不明"}`;
+    log(d.allowed ? "店舗ネットワークからのアクセスを確認しました。" : "店舗ネットワーク外と判定されました。");
+    return d.allowed;
+  }catch(e){
+    $("dot").className="dot ng"; $("networkText").textContent="ネットワーク確認API未接続"; $("ipText").textContent=""; log("APIエラー: "+e.message); return false;
+  }
+}
+
+async function checkStatus(){
+  try{const r=await fetch("/api/status",{cache:"no-store"}); const d=await r.json(); log(JSON.stringify(d,null,2));}
+  catch(e){log("APIエラー: "+e.message)}
+}
+
+function openModal(id){selected=employees.find(e=>e.id===id); $("modalTitle").textContent=selected.name+"さんのPIN"; $("pin").value=""; $("msg").textContent=""; $("modal").style.display="flex"; setTimeout(()=>$("pin").focus(),50)}
+function closeModal(){selected=null;$("modal").style.display="none"}
+
+async function loginAndPunch(){
+  if(!selected)return;
+  const pin=$("pin").value.trim();
+  if(!/^\d{4}$/.test(pin)){ $("msg").textContent="4桁のPINを入力してください。"; return; }
+  $("msg").textContent="確認中…";
+  try{
+    const auth=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({employeeId:selected.id,pin})});
+    const a=await auth.json();
+    if(!a.ok){$("msg").textContent=a.message||"認証できませんでした。";return;}
+    const punch=await fetch("/api/punch",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({employeeId:selected.id})});
+    const p=await punch.json();
+    if(!p.ok){$("msg").textContent=p.message||"打刻できませんでした。";return;}
+    log(`${selected.name}：${p.type === "in" ? "出勤" : "退勤"} ${p.timestamp}`);
+    closeModal();
+    alert(`${selected.name}さん\n${p.type === "in" ? "出勤" : "退勤"}を記録しました。`);
+  }catch(e){$("msg").textContent="通信エラー: "+e.message}
+}
+
+render(); checkNetwork();
+</script>
+</body>
+</html>
