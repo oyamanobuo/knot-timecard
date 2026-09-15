@@ -1,0 +1,51 @@
+name: Fix admin button
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: ${{ !contains(github.event.head_commit.message, 'Auto-fix admin button') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch admin button
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('public/index.html')
+          s = p.read_text(encoding='utf-8')
+          old = '<button id="openAdminBtn" class="primary" type="button">管理者画面</button>'
+          new = '<button id="openAdminBtn" class="primary" type="button" onclick="document.getElementById(\'adminLoginModal\').classList.add(\'show\');document.getElementById(\'adminPin\').value=\'\';document.getElementById(\'adminLoginMsg\').textContent=\'\';setTimeout(function(){document.getElementById(\'adminPin\').focus()},50)">管理者画面</button>'
+          if old in s:
+              s = s.replace(old, new, 1)
+          else:
+              print('admin button already patched or target not found')
+          marker = '</body>'
+          helper = '''<script>
+(function(){
+  function bindAction(id, fn){var b=document.getElementById(id);if(b&&!b.dataset.bound){b.dataset.bound='1';b.addEventListener('click',fn);}}
+  function boot(){
+    bindAction('checkNetworkBtn',function(){if(typeof window.checkNetwork==='function')window.checkNetwork();});
+    bindAction('checkStatusBtn',function(){if(typeof window.checkStatus==='function')window.checkStatus();});
+    bindAction('loadHistoryBtn',function(){if(typeof window.loadHistory==='function')window.loadHistory();});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
+})();
+</script>\n'''
+          if helper not in s:
+              s = s.replace(marker, helper + marker, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add public/index.html
+          git diff --cached --quiet && exit 0
+          git commit -m 'Auto-fix admin button'
+          git push
