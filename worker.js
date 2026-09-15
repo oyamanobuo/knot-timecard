@@ -140,8 +140,8 @@ export default {
         try {
           if (!(await adminOk(request))) return json({ ok: false, message: "管理者PINが違います。" }, 401);
           await ensureSchema(env); const body = await readJson(request);
-          const rawPunchId = body?.punchId ?? body?.id; const punchId = Number.parseInt(String(rawPunchId ?? ""), 10); const newType = body?.newType; const newTimestamp = body?.newTimestamp; const reason = String(body?.reason || "").trim(); const editedBy = String(body?.editedBy || "管理者").trim().slice(0, 50);
-          if (!Number.isInteger(punchId) || punchId <= 0) return json({ ok: false, message: "打刻IDが不正です。" }, 400);
+          const rawPunchId = body?.punchId ?? body?.id ?? body?.punch_id; const punchId = Number(String(rawPunchId ?? "").trim()); const newType = body?.newType; const newTimestamp = body?.newTimestamp; const reason = String(body?.reason || "").trim(); const editedBy = String(body?.editedBy || "管理者").trim().slice(0, 50);
+          if (!Number.isSafeInteger(punchId) || punchId <= 0) return json({ ok: false, message: "打刻IDが不正です。" }, 400);
           if (!['in','out'].includes(newType)) return json({ ok: false, message: "区分が不正です。" }, 400);
           if (!newTimestamp || Number.isNaN(Date.parse(newTimestamp))) return json({ ok: false, message: "日時が不正です。" }, 400);
           if (!reason) return json({ ok: false, message: "修正理由を入力してください。" }, 400);
