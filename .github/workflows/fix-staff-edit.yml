@@ -17,18 +17,23 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           p = Path('public/index.html')
           s = p.read_text(encoding='utf-8')
-          old = 'onclick=\\"openEmployee(${JSON.stringify(e.id)})\\"'
-          new = 'onclick=\\"openEmployee(\\\'${e.id}\\\')\\"'
-          if old not in s:
-              raise SystemExit('target string not found')
-          p.write_text(s.replace(old, new), encoding='utf-8')
+          pattern = r'onclick="openEmployee\(\$\{JSON\.stringify\(e\.id\)\}\)"'
+          replacement = r'onclick="openEmployee(\'${e.id}\')"'
+          ns, count = re.subn(pattern, replacement, s)
+          if count == 0:
+              print('No patch needed or target already fixed')
+              raise SystemExit(0)
+          p.write_text(ns, encoding='utf-8')
+          print(f'Patched {count} occurrence(s)')
           PY
       - name: Commit patch
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add public/index.html
+          git diff --cached --quiet && exit 0
           git commit -m 'Auto-fix staff edit button'
           git push
