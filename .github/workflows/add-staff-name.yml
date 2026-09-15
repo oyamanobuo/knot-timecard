@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   patch:
-    if: ${{ !contains(github.event.head_commit.message, 'Auto-fix staff name') && !contains(github.event.head_commit.message, 'Fix action buttons') }}
+    if: ${{ !contains(github.event.head_commit.message, 'Auto-fix staff name') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +42,7 @@ jobs:
               s = s.replace(old_buttons, new_buttons, 1)
 
           old_status = 'async function checkStatus(){try{const r=await fetch("/api/status",{cache:"no-store"}),d=await r.json();$("dbText").innerHTML=d.database?\'<span class="dbok">D1：接続OK（保存件数 \'+d.punchCount+\'件）</span>\':\'<span class="dbng">D1：未接続</span>\';log(JSON.stringify(d,null,2));}catch(e){log("APIエラー: "+e.message)}}'
-          new_status = 'async function checkStatus(){try{const r=await fetch("/api/status",{cache:"no-store"}),d=await r.json();$("dbText").innerHTML=d.database?\'<span class="dbok">D1：接続OK（保存件数 \'+d.punchCount+\'件）</span>\':\'<span class="dbng">D1：未接続</span>\';log(d.database?"状態確認：正常\nD1接続OK・保存件数 "+d.punchCount+"件":"状態確認：D1未接続");}catch(e){log("状態確認エラー: "+e.message)}}'
+          new_status = 'async function checkStatus(){try{const r=await fetch("/api/status",{cache:"no-store"}),d=await r.json();$("dbText").innerHTML=d.database?\'<span class="dbok">D1：接続OK（保存件数 \'+d.punchCount+\'件）</span>\':\'<span class="dbng">D1：未接続</span>\';log(d.database?"状態確認：正常\\nD1接続OK・保存件数 "+d.punchCount+"件":"状態確認：D1未接続");}catch(e){log("状態確認エラー: "+e.message)}}'
           if old_status in s:
               s = s.replace(old_status, new_status, 1)
 
