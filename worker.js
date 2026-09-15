@@ -213,11 +213,14 @@ export default {
           if (!adminOk(body)) return json({ ok: false, message: "管理者PINが違います。" }, 401);
           await ensureSchema(env); const id = String(body?.id || "");
           if (!id) return json({ ok: false, message: "スタッフIDがありません。" }, 400);
+          const name = String(body?.name || "").trim().slice(0, 50);
+          if (!name) return json({ ok: false, message: "名前を入力してください。" }, 400);
           const wage = Math.max(0, Math.floor(Number(body?.hourlyWage || 0))); const transport = Math.max(0, Math.floor(Number(body?.transportAllowance || 0)));
           const pin = String(body?.pin || "");
           if (pin && !/^\d{4}$/.test(pin)) return json({ ok: false, message: "PINは4桁の数字です。" }, 400);
-          if (pin) await env.DB.prepare("UPDATE employees SET hourly_wage=?,transport_allowance=?,pin=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(wage, transport, pin, id).run();
-          else await env.DB.prepare("UPDATE employees SET hourly_wage=?,transport_allowance=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(wage, transport, id).run();
+          if (pin) await env.DB.prepare("UPDATE employees SET name=?,hourly_wage=?,transport_allowance=?,pin=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(name,wage,transport,pin,id).run();
+          else await env.DB.prepare("UPDATE employees SET name=?,hourly_wage=?,transport_allowance=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(name,wage,transport,id).run();
+          await env.DB.prepare("UPDATE punches SET name=? WHERE employee_id=?").bind(name,id).run();
           return json({ ok: true, message: "スタッフ情報を保存しました。" });
         } catch (e) { return json({ ok: false, message: "スタッフ情報保存エラー: " + e.message }, 500); }
       }
