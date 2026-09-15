@@ -1,0 +1,93 @@
+name: Manage staff create delete
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, 'Auto-manage staff') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch worker and staff UI
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          
+          w = Path('worker.js')
+          s = w.read_text(encoding='utf-8')
+          marker = '      if (url.pathname === "/api/admin/employee-update" && request.method === "POST") {'
+          endpoints = '''      if (url.pathname === "/api/admin/employee-create" && request.method === "POST") {
+          try {
+            const body = await readJson(request);
+            if (!adminOk(body)) return json({ ok: false, message: "管理者PINが違います。" }, 401);
+            await ensureSchema(env);
+            const name = String(body?.name || "").trim().slice(0, 50);
+            const pin = String(body?.pin || "").trim();
+            const wage = Math.max(0, Math.floor(Number(body?.hourlyWage || 0)));
+            const transport = Math.max(0, Math.floor(Number(body?.transportAllowance || 0)));
+            if (!name) return json({ ok: false, message: "名前を入力してください。" }, 400);
+            if (!/^\\d{4}$/.test(pin)) return json({ ok: false, message: "PINは4桁の数字で入力してください。" }, 400);
+            const id = "staff_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+            await env.DB.prepare("INSERT INTO employees (id,name,pin,hourly_wage,transport_allowance,active) VALUES (?,?,?,?,?,1)").bind(id,name,pin,wage,transport).run();
+            return json({ ok: true, message: name + "さんを追加しました。", employee: { id, name, hourly_wage:wage, transport_allowance:transport, active:1 } });
+          } catch (e) { return json({ ok: false, message: "スタッフ追加エラー: " + e.message }, 500); }
+        }
+
+        if (url.pathname === "/api/admin/employee-delete" && request.method === "POST") {
+          try {
+            const body = await readJson(request);
+            if (!adminOk(body)) return json({ ok: false, message: "管理者PINが違います。" }, 401);
+            await ensureSchema(env);
+            const id = String(body?.id || "").trim();
+            if (!id) return json({ ok: false, message: "スタッフIDが不正です。" }, 400);
+            const emp = await env.DB.prepare("SELECT id,name FROM employees WHERE id=? AND active=1").bind(id).first();
+            if (!emp) return json({ ok: false, message: "スタッフが見つかりません。" }, 404);
+            await env.DB.prepare("UPDATE employees SET active=0,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run();
+            return json({ ok: true, message: emp.name + "さんを削除しました。打刻履歴は保持されています。" });
+          } catch (e) { return json({ ok: false, message: "スタッフ削除エラー: " + e.message }, 500); }
+        }
+
+'''
+          if 'url.pathname === "/api/admin/employee-create"' not in s:
+              if marker not in s:
+                  raise SystemExit('worker marker not found')
+              s = s.replace(marker, endpoints + marker, 1)
+          s = s.replace('version: "1.4"', 'version: "1.5"')
+          w.write_text(s, encoding='utf-8')
+          
+          p = Path('public/index.html')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('V1.4 給与計算対応版・管理画面／打刻修正', 'V1.5 スタッフ管理・給与計算対応版・管理画面／打刻修正')
+          s = s.replace('<h3 class="section-title" style="margin-top:18px">スタッフ情報</h3><div id="adminEmployees"></div>', '<h3 class="section-title" style="margin-top:18px">スタッフ情報</h3><div class="row" style="margin-bottom:10px"><button class="primary" type="button" onclick="openAddEmployee()">＋ スタッフを追加</button></div><div id="adminEmployees"></div>')
+          modal_marker = '<div id="employeeModal" class="modalback">'
+          add_modal = '''<div id="addEmployeeModal" class="modalback"><div class="modal"><h2>スタッフを追加</h2><div class="field"><label>名前</label><input id="newEmpName" type="text" maxlength="50" placeholder="例：鈴木"></div><div class="field"><label>時給（円）</label><input id="newEmpWage" type="number" min="0" step="1" value="0"></div><div class="field"><label>交通費（1勤務あたり・円）</label><input id="newEmpTransport" type="number" min="0" step="1" value="0"></div><div class="field"><label>PIN（4桁）</label><input id="newEmpPin" type="password" inputmode="numeric" maxlength="4" placeholder="例：5678"></div><div id="newEmpMsg" class="msg"></div><div class="row"><button class="primary" type="button" onclick="saveNewEmployee()">追加する</button><button class="secondary" type="button" onclick="closeAddEmployee()">キャンセル</button></div></div></div>'''
+          if 'id="addEmployeeModal"' not in s:
+              if modal_marker not in s:
+                  raise SystemExit('employee modal marker not found')
+              s = s.replace(modal_marker, add_modal + '\\n' + modal_marker, 1)
+          funcs_marker = 'setPayrollMonth();'
+          funcs = '''function openAddEmployee(){$("newEmpName").value="";$('newEmpWage').value=0;$('newEmpTransport').value=0;$('newEmpPin').value="";$('newEmpMsg').textContent="";$('addEmployeeModal').classList.add("show");setTimeout(()=>$('newEmpName').focus(),50)}
+function closeAddEmployee(){$('addEmployeeModal').classList.remove("show")}
+async function saveNewEmployee(){const name=$('newEmpName').value.trim(),wage=Math.max(0,Math.floor(Number($('newEmpWage').value||0))),transport=Math.max(0,Math.floor(Number($('newEmpTransport').value||0))),pin=$('newEmpPin').value.trim();if(!name){$('newEmpMsg').textContent="名前を入力してください。";return}if(!/^\\d{4}$/.test(pin)){$('newEmpMsg').textContent="PINは4桁の数字です。";return}$('newEmpMsg').textContent="追加中…";try{const d=await adminPost("/api/admin/employee-create",{name,hourlyWage:wage,transportAllowance:transport,pin});closeAddEmployee();alert(d.message);await Promise.all([loadAdminEmployees(),loadEmployees(),loadHistory(),checkStatus()])}catch(e){$('newEmpMsg').textContent=e.message}}
+async function deleteEmployee(id,name){if(!confirm(name+"さんをスタッフ一覧から削除しますか？\\n\\n過去の打刻履歴は残ります。"))return;try{const d=await adminPost("/api/admin/employee-delete",{id});alert(d.message);await Promise.all([loadAdminEmployees(),loadEmployees(),loadHistory(),checkStatus()])}catch(e){alert(e.message)}}
+'''
+          if 'function openAddEmployee()' not in s:
+              if funcs_marker not in s:
+                  raise SystemExit('payroll marker not found')
+              s = s.replace(funcs_marker, funcs + funcs_marker, 1)
+          s = s.replace('<b>V1.4</b>', '<b>V1.5</b>')
+          p.write_text(s, encoding='utf-8')
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add worker.js public/index.html
+          git diff --cached --quiet && exit 0
+          git commit -m 'Auto-manage staff'
+          git push
