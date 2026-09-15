@@ -117,18 +117,30 @@ export default {
       }
 
       if (url.pathname === "/api/admin/punches" && request.method === "POST") {
-        try { const body = await readJson(request); if (!adminOk(body)) return json({ ok: false, message: "管理者PINが違います。" }, 401); await ensureSchema(env); const rows = await env.DB.prepare(`SELECT id,employee_id,name,type,timestamp,client_ip,created_at FROM punches ORDER BY id DESC LIMIT 100`).all(); return json({ ok: true, rows: rows.results || [] }); }
-        catch (e) { return json({ ok: false, message: "管理履歴取得エラー: " + e.message }, 500); }
+        try {
+          const body = await readJson(request);
+          if (!adminOk(body)) return json({ ok: false, message: "管理者PINが違います。" }, 401);
+          await ensureSchema(env);
+          const rows = await env.DB.prepare(`SELECT id,employee_id,name,type,timestamp,client_ip,created_at FROM punches ORDER BY id DESC LIMIT 100`).all();
+          return json({ ok: true, rows: rows.results || [] });
+        } catch (e) { return json({ ok: false, message: "管理履歴取得エラー: " + e.message }, 500); }
       }
 
       if (url.pathname === "/api/admin/edit-history" && request.method === "POST") {
-        try { const body = await readJson(request); if (!adminOk(body)) return json({ ok: false, message: "管理者PINが違います。" }, 401); await ensureSchema(env); const rows = await env.DB.prepare(`SELECT id,punch_id,employee_id,old_type,old_timestamp,new_type,new_timestamp,reason,edited_by,edited_at FROM punch_edits ORDER BY id DESC LIMIT 100`).all(); return json({ ok: true, rows: rows.results || [] }); }
-        catch (e) { return json({ ok: false, message: "修正履歴取得エラー: " + e.message }, 500); }
+        try {
+          const body = await readJson(request);
+          if (!adminOk(body)) return json({ ok: false, message: "管理者PINが違います。" }, 401);
+          await ensureSchema(env);
+          const rows = await env.DB.prepare(`SELECT id,punch_id,employee_id,old_type,old_timestamp,new_type,new_timestamp,reason,edited_by,edited_at FROM punch_edits ORDER BY id DESC LIMIT 100`).all();
+          return json({ ok: true, rows: rows.results || [] });
+        } catch (e) { return json({ ok: false, message: "修正履歴取得エラー: " + e.message }, 500); }
       }
 
       if (url.pathname === "/api/admin/punch-edit" && request.method === "POST") {
         try {
-          const body = await readJson(request); if (!adminOk(body)) return json({ ok: false, message: "管理者PINが違います。" }, 401); await ensureSchema(env);
+          const body = await readJson(request);
+          if (!adminOk(body)) return json({ ok: false, message: "管理者PINが違います。" }, 401);
+          await ensureSchema(env);
           const rawPunchId = body?.punchId ?? body?.id; const punchId = Number.parseInt(String(rawPunchId ?? ""), 10); const newType = body?.newType; const newTimestamp = body?.newTimestamp; const reason = String(body?.reason || "").trim(); const editedBy = String(body?.editedBy || "管理者").trim().slice(0, 50);
           if (!Number.isInteger(punchId) || punchId <= 0) return json({ ok: false, message: "打刻IDが不正です。" }, 400);
           if (!['in','out'].includes(newType)) return json({ ok: false, message: "区分が不正です。" }, 400);
@@ -143,6 +155,15 @@ export default {
         } catch (e) { return json({ ok: false, message: "打刻修正エラー: " + e.message }, 500); }
       }
 
+      if (url.pathname === "/api/admin/employees" && request.method === "POST") {
+        try {
+          const body = await readJson(request);
+          if (!adminOk(body)) return json({ ok: false, message: "管理者PINが違います。" }, 401);
+          const rows = await getEmployees(env, true);
+          return json({ ok: true, employees: rows });
+        } catch (e) { return json({ ok: false, message: "スタッフ管理情報取得エラー: " + e.message }, 500); }
+      }
+
       if (url.pathname === "/api/admin/payroll" && request.method === "POST") {
         try {
           const body = await readJson(request);
@@ -151,8 +172,12 @@ export default {
           const month = String(body?.month || "");
           if (!/^\d{4}-\d{2}$/.test(month)) return json({ ok: false, message: "対象月が不正です。" }, 400);
           const [y, m] = month.split("-").map(Number);
-          const start = new Date(Date.UTC(y, m - 1, 1)).toISOString();
-          const end = new Date(Date.UTC(y, m, 1)).toISOString();
+          const startLocal = new Date(`${month}-01T00:00:00+09:00`);
+          const endLocal = new Date(Date.UTC(y, m, 1) - 9 * 60 * 60 * 1000);
+          const start = new Date(startLocal.getTime() - 48 * 60 * 60 * 1000).toISOString();
+          const end = new Date(endLocal.getTime() + 48 * 60 * 60 * 1000).toISOString();
+          const monthStartMs = startLocal.getTime();
+          const monthEndMs = endLocal.getTime();
           const emps = await env.DB.prepare("SELECT id,name,hourly_wage,transport_allowance FROM employees WHERE active=1 ORDER BY id").all();
           const punches = await env.DB.prepare("SELECT id,employee_id,name,type,timestamp FROM punches WHERE timestamp>=? AND timestamp<? ORDER BY employee_id,id").bind(start,end).all();
           const byEmp = new Map();
@@ -166,7 +191,8 @@ export default {
               if (p.type === "in") { if (!open) open = p; }
               else if (p.type === "out" && open) {
                 const ms = Date.parse(p.timestamp) - Date.parse(open.timestamp);
-                if (Number.isFinite(ms) && ms >= 0) { row.minutes += Math.round(ms / 60000); row.workDays += 1; }
+                const inMs = Date.parse(open.timestamp);
+                if (Number.isFinite(ms) && ms >= 0 && inMs >= monthStartMs && inMs < monthEndMs) { row.minutes += Math.round(ms / 60000); row.workDays += 1; }
                 open = null;
               }
             }
@@ -181,17 +207,14 @@ export default {
         } catch (e) { return json({ ok:false, message:"給与計算エラー: " + e.message },500); }
       }
 
-      if (url.pathname === "/api/admin/employees" && request.method === "POST") {
-        try { const body = await readJson(request); if (!adminOk(body)) return json({ ok: false, message: "管理者PINが違います。" }, 401); const rows = await getEmployees(env, true); return json({ ok: true, employees: rows }); }
-        catch (e) { return json({ ok: false, message: "スタッフ管理情報取得エラー: " + e.message }, 500); }
-      }
-
       if (url.pathname === "/api/admin/employee-update" && request.method === "POST") {
         try {
-          const body = await readJson(request); if (!adminOk(body)) return json({ ok: false, message: "管理者PINが違います。" }, 401);
+          const body = await readJson(request);
+          if (!adminOk(body)) return json({ ok: false, message: "管理者PINが違います。" }, 401);
           await ensureSchema(env); const id = String(body?.id || "");
           if (!id) return json({ ok: false, message: "スタッフIDがありません。" }, 400);
-          const wage = Math.max(0, Math.floor(Number(body?.hourlyWage || 0))); const transport = Math.max(0, Math.floor(Number(body?.transportAllowance || 0))); const pin = String(body?.pin || "");
+          const wage = Math.max(0, Math.floor(Number(body?.hourlyWage || 0))); const transport = Math.max(0, Math.floor(Number(body?.transportAllowance || 0)));
+          const pin = String(body?.pin || "");
           if (pin && !/^\d{4}$/.test(pin)) return json({ ok: false, message: "PINは4桁の数字です。" }, 400);
           if (pin) await env.DB.prepare("UPDATE employees SET hourly_wage=?,transport_allowance=?,pin=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(wage, transport, pin, id).run();
           else await env.DB.prepare("UPDATE employees SET hourly_wage=?,transport_allowance=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(wage, transport, id).run();
@@ -220,13 +243,17 @@ export default {
   function yen(n){return Number(n||0).toLocaleString('ja-JP')+'円'}
   function hours(min){return Math.floor(min/60)+':'+String(min%60).padStart(2,'0')}
   async function loadPayroll(csv){
-    const month=document.getElementById('payrollMonth')?.value; const msg=document.getElementById('payrollMsg');
-    if(!month){msg.textContent='対象月を選択してください。';return;} msg.className='msg'; msg.textContent='計算中…';
+    const month=document.getElementById('payrollMonth')?.value;
+    const msg=document.getElementById('payrollMsg');
+    if(!month){msg.textContent='対象月を選択してください。';return;}
+    msg.textContent='計算中…';
     try{
-      const d=await adminPost('/api/admin/payroll',{month}); const rows=d.rows||[];
+      const d=await adminPost('/api/admin/payroll',{month});
+      const rows=d.rows||[];
       const total=rows.reduce((a,r)=>({wage:a.wage+r.wage,transport:a.transport+r.transport,total:a.total+r.total,minutes:a.minutes+r.minutes,days:a.days+r.workDays}),{wage:0,transport:0,total:0,minutes:0,days:0});
       document.getElementById('payrollRows').innerHTML=rows.map(r=>'<tr><td>'+esc(r.name)+'</td><td>'+r.workDays+'日</td><td>'+hours(r.minutes)+'</td><td>'+yen(r.hourlyWage)+'</td><td>'+yen(r.wage)+'</td><td>'+yen(r.transport)+'</td><td>'+yen(r.total)+'</td><td>'+(r.incomplete?'未退勤あり':'')+'</td></tr>').join('')+'<tr class="payroll-total"><td>合計</td><td>'+total.days+'日</td><td>'+hours(total.minutes)+'</td><td>—</td><td>'+yen(total.wage)+'</td><td>'+yen(total.transport)+'</td><td>'+yen(total.total)+'</td><td></td></tr>';
-      msg.textContent=rows.length+'名を集計しました。'; msg.className='msg success'; window._payrollRows=rows; window._payrollMonth=month;
+      msg.textContent=rows.length+'名を集計しました。'; msg.className='msg success';
+      window._payrollRows=rows; window._payrollMonth=month;
       if(csv){
         const lines=[['対象月','名前','勤務日数','勤務時間','時給','給与','交通費','支給額','備考'],...rows.map(r=>[month,r.name,r.workDays,hours(r.minutes),r.hourlyWage,r.wage,r.transport,r.total,r.incomplete?'未退勤あり':''])];
         lines.push([month,'合計',total.days,hours(total.minutes),'',total.wage,total.transport,total.total,'']);
@@ -237,7 +264,7 @@ export default {
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',initPayroll); else initPayroll();
 })();
-</script>`;
+<\/script>`;
       html=html.replace('</body>',payrollScript+'</body>');
       return new Response(html,{status:asset.status,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
     }
