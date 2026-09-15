@@ -17,7 +17,6 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
           p = Path('public/index.html')
           s = p.read_text(encoding='utf-8')
 
@@ -27,21 +26,17 @@ jobs:
                   raise SystemExit('employee modal marker not found')
               s = s.replace(marker, marker + '<div class="field"><label>名前</label><input id="empName" type="text" maxlength="50"></div>')
 
-          s = re.sub(
-              r'function openEmployee\(id\)\{.*?\}\nasync function saveEmployee',
-              '''function openEmployee(id){editingEmployee=adminEmployees.find(x=>x.id===id);if(!editingEmployee)return;$("employeeInfo").textContent=`${editingEmployee.name}さんの設定`;$("empName").value=editingEmployee.name||"";$("empWage").value=editingEmployee.hourly_wage||0;$("empTransport").value=editingEmployee.transport_allowance||0;$("empPin").value="";$("empMsg").textContent="";$("employeeModal").classList.add("show")}\nasync function saveEmployee''',
-              s,
-              count=1,
-              flags=re.S
-          )
+          old_open = 'function openEmployee(id){editingEmployee=adminEmployees.find(x=>x.id===id);if(!editingEmployee)return;$("employeeInfo").textContent=`${editingEmployee.name}さんの設定`;$("empWage").value=editingEmployee.hourly_wage||0;'
+          new_open = 'function openEmployee(id){editingEmployee=adminEmployees.find(x=>x.id===id);if(!editingEmployee)return;$("employeeInfo").textContent=`${editingEmployee.name}さんの設定`;$("empName").value=editingEmployee.name||"";$("empWage").value=editingEmployee.hourly_wage||0;'
+          if old_open in s:
+              s = s.replace(old_open, new_open, 1)
 
-          s = re.sub(
-              r'async function saveEmployee\(\)\{.*?\}\n',
-              '''async function saveEmployee(){if(!editingEmployee)return;const name=$("empName").value.trim(),wage=Math.max(0,Math.floor(Number($("empWage").value||0))),transport=Math.max(0,Math.floor(Number($("empTransport").value||0))),pin=$("empPin").value.trim();if(!name){$("empMsg").textContent="名前を入力してください。";return}if(pin&&!/^\\d{4}$/.test(pin)){$("empMsg").textContent="PINは4桁の数字です。";return}$("empMsg").textContent="保存中…";try{const d=await adminPost("/api/admin/employee-update",{id:editingEmployee.id,name,hourlyWage:wage,transportAllowance:transport,pin});closeEmployeeModal();alert(d.message);await Promise.all([loadAdminEmployees(),loadEmployees(),loadHistory()])}catch(e){$("empMsg").textContent=e.message}}\n''',
-              s,
-              count=1,
-              flags=re.S
-          )
+          old_save = 'async function saveEmployee(){if(!editingEmployee)return;const wage=Math.max(0,Math.floor(Number($("empWage").value||0))),transport=Math.max(0,Math.floor(Number($("empTransport").value||0))),pin=$("empPin").value.trim();if(pin&&!/^\\d{4}$/.test(pin)){$("empMsg").textContent="PINは4桁の数字です。";return}$("empMsg").textContent="保存中…";try{const d=await adminPost("/api/admin/employee-update",{id:editingEmployee.id,hourlyWage:wage,transportAllowance:transport,pin});closeEmployeeModal();alert(d.message);await loadAdminEmployees()}catch(e){$("empMsg").textContent=e.message}}'
+          new_save = 'async function saveEmployee(){if(!editingEmployee)return;const name=$("empName").value.trim(),wage=Math.max(0,Math.floor(Number($("empWage").value||0))),transport=Math.max(0,Math.floor(Number($("empTransport").value||0))),pin=$("empPin").value.trim();if(!name){$("empMsg").textContent="名前を入力してください。";return}if(pin&&!/^\\d{4}$/.test(pin)){$("empMsg").textContent="PINは4桁の数字です。";return}$("empMsg").textContent="保存中…";try{const d=await adminPost("/api/admin/employee-update",{id:editingEmployee.id,name,hourlyWage:wage,transportAllowance:transport,pin});closeEmployeeModal();alert(d.message);await Promise.all([loadAdminEmployees(),loadEmployees(),loadHistory()])}catch(e){$("empMsg").textContent=e.message}}'
+          if old_save in s:
+              s = s.replace(old_save, new_save, 1)
+          else:
+              raise SystemExit('saveEmployee function not found')
 
           p.write_text(s, encoding='utf-8')
           PY
