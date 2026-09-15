@@ -65,11 +65,11 @@ export default {
 
       if (url.pathname === "/api/status" && request.method === "GET") {
         try {
-          if (!dbRequired(env)) return json({ ok: true, version: "1.3", database: false, message: "D1未接続です。" });
+          if (!dbRequired(env)) return json({ ok: true, version: "1.3.2", database: false, message: "D1未接続です。" });
           await ensureSchema(env);
           const r = await env.DB.prepare("SELECT COUNT(*) AS count FROM punches").first();
           const e = await env.DB.prepare("SELECT COUNT(*) AS count FROM employees WHERE active=1").first();
-          return json({ ok: true, version: "1.3", database: true, punchCount: Number(r?.count || 0), employeeCount: Number(e?.count || 0), schema: "ready" });
+          return json({ ok: true, version: "1.3.2", database: true, punchCount: Number(r?.count || 0), employeeCount: Number(e?.count || 0), schema: "ready" });
         } catch (e) { return json({ ok: false, message: "D1初期化エラー: " + e.message }, 500); }
       }
 
@@ -113,7 +113,7 @@ export default {
 
       // ----- Admin -----
       if (url.pathname === "/api/admin/auth" && request.method === "POST") {
-        try { const ok = await adminOk(request); return ok ? json({ ok: true }) : json({ ok: false, message: "管理者PINが違います。" }, 401); }
+        try { const body = await readJson(request); const ok = adminOk(body); return ok ? json({ ok: true }) : json({ ok: false, message: "管理者PINが違います。" }, 401); }
         catch (e) { return json({ ok: false, message: "管理者認証エラー: " + e.message }, 500); }
       }
 
