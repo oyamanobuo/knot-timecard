@@ -38,56 +38,47 @@ jobs:
           marker_script = '</script></body></html>'
           script = r'''<script>
 (function(){
-  function ensure(){
-    const list=document.getElementById('adminEmployees');
-    if(!list)return;
-    const addBtn=document.getElementById('addEmployeeBtn');
-    if(addBtn && !addBtn.dataset.bound){
-      addBtn.dataset.bound='1';
-      addBtn.addEventListener('click',function(){
-        document.getElementById('newEmpName').value='';
-        document.getElementById('newEmpWage').value='0';
-        document.getElementById('newEmpTransport').value='0';
-        document.getElementById('newEmpPin').value='';
-        document.getElementById('newEmpMsg').textContent='';
-        document.getElementById('addEmployeeModal').classList.add('show');
-        setTimeout(()=>document.getElementById('newEmpName').focus(),50);
-      });
-    }
-    const closeBtn=document.getElementById('closeAddEmployeeBtn');
-    if(closeBtn && !closeBtn.dataset.bound){closeBtn.dataset.bound='1';closeBtn.addEventListener('click',()=>document.getElementById('addEmployeeModal').classList.remove('show'));}
-    const saveBtn=document.getElementById('saveNewEmployeeBtn');
-    if(saveBtn && !saveBtn.dataset.bound){saveBtn.dataset.bound='1';saveBtn.addEventListener('click',async function(){
-      const name=document.getElementById('newEmpName').value.trim();
-      const wage=Math.max(0,Math.floor(Number(document.getElementById('newEmpWage').value||0)));
-      const transport=Math.max(0,Math.floor(Number(document.getElementById('newEmpTransport').value||0)));
-      const pin=document.getElementById('newEmpPin').value.trim();
-      const msg=document.getElementById('newEmpMsg');
+  function renderStaff(){
+    const box=document.getElementById('adminEmployees');
+    if(!box || typeof adminEmployees==='undefined')return;
+    box.innerHTML=(adminEmployees||[]).map(function(e){
+      const id=String(e.id||'');
+      return '<div class="admin-card"><b>'+esc(e.name)+'</b><div class="small">時給：'+Number(e.hourly_wage||0).toLocaleString()+'円　交通費：'+Number(e.transport_allowance||0).toLocaleString()+'円／勤務　PIN：'+esc(e.pin||'')+'</div><div class="row" style="margin-top:8px"><button class="secondary editbtn" type="button" data-edit-id="'+esc(id)+'">編集</button><button class="danger editbtn" type="button" data-delete-id="'+esc(id)+'">削除</button></div></div>';
+    }).join('');
+    box.querySelectorAll('[data-edit-id]').forEach(function(btn){btn.addEventListener('click',function(){openEmployee(btn.getAttribute('data-edit-id'));});});
+    box.querySelectorAll('[data-delete-id]').forEach(function(btn){btn.addEventListener('click',async function(){
+      const id=btn.getAttribute('data-delete-id');
+      const emp=(adminEmployees||[]).find(function(x){return String(x.id)===id;});
+      if(!emp)return;
+      if(!confirm(emp.name+'さんをスタッフ一覧から削除しますか？\n\n過去の打刻履歴は残ります。'))return;
+      try{const d=await adminPost('/api/admin/employee-delete',{id:id});alert(d.message);await Promise.all([loadAdminEmployees(),loadEmployees(),loadHistory(),checkStatus()]);}catch(e){alert(e.message);}
+    });});
+  }
+  function bindAdd(){
+    const add=document.getElementById('addEmployeeBtn');
+    if(add&&!add.dataset.bound){add.dataset.bound='1';add.addEventListener('click',function(){document.getElementById('newEmpName').value='';document.getElementById('newEmpWage').value='0';document.getElementById('newEmpTransport').value='0';document.getElementById('newEmpPin').value='';document.getElementById('newEmpMsg').textContent='';document.getElementById('addEmployeeModal').classList.add('show');setTimeout(function(){document.getElementById('newEmpName').focus();},50);});}
+    const close=document.getElementById('closeAddEmployeeBtn');
+    if(close&&!close.dataset.bound){close.dataset.bound='1';close.addEventListener('click',function(){document.getElementById('addEmployeeModal').classList.remove('show');});}
+    const save=document.getElementById('saveNewEmployeeBtn');
+    if(save&&!save.dataset.bound){save.dataset.bound='1';save.addEventListener('click',async function(){
+      const name=document.getElementById('newEmpName').value.trim(),wage=Math.max(0,Math.floor(Number(document.getElementById('newEmpWage').value||0))),transport=Math.max(0,Math.floor(Number(document.getElementById('newEmpTransport').value||0))),pin=document.getElementById('newEmpPin').value.trim(),msg=document.getElementById('newEmpMsg');
       if(!name){msg.textContent='名前を入力してください。';return;}
       if(!/^\d{4}$/.test(pin)){msg.textContent='PINは4桁の数字です。';return;}
       msg.textContent='追加中…';
-      try{const d=await adminPost('/api/admin/employee-create',{name,hourlyWage:wage,transportAllowance:transport,pin});document.getElementById('addEmployeeModal').classList.remove('show');alert(d.message);await Promise.all([loadAdminEmployees(),loadEmployees(),loadHistory(),checkStatus()]);}catch(e){msg.textContent=e.message;}
+      try{const d=await adminPost('/api/admin/employee-create',{name:name,hourlyWage:wage,transportAllowance:transport,pin:pin});document.getElementById('addEmployeeModal').classList.remove('show');alert(d.message);await Promise.all([loadAdminEmployees(),loadEmployees(),loadHistory(),checkStatus()]);}catch(e){msg.textContent=e.message;}
     });}
-    if(typeof loadAdminEmployees==='function' && !loadAdminEmployees.__staffWrapped){
-      const original=loadAdminEmployees;
-      const wrapped=async function(){
-        const result=await original.apply(this,arguments);
-        const box=document.getElementById('adminEmployees');
-        if(box && typeof adminEmployees!=='undefined'){
-          box.innerHTML=(adminEmployees||[]).map(e=>'<div class="admin-card"><b>'+esc(e.name)+'</b><div class="small">時給：'+Number(e.hourly_wage||0).toLocaleString()+'円　交通費：'+Number(e.transport_allowance||0).toLocaleString()+'円／勤務　PIN：'+esc(e.pin||'')+'</div><div class="row" style="margin-top:8px"><button class="secondary editbtn" type="button" onclick="openEmployee(\''+esc(e.id).replace(/'/g,'&#39;')+'\')">編集</button><button class="danger editbtn" type="button" data-delete-id="'+esc(e.id)+'">削除</button></div></div>').join('');
-          box.querySelectorAll('[data-delete-id]').forEach(function(btn){btn.addEventListener('click',async function(){const id=btn.getAttribute('data-delete-id');const emp=(adminEmployees||[]).find(x=>x.id===id);if(!emp)return;if(!confirm(emp.name+'さんをスタッフ一覧から削除しますか？\n\n過去の打刻履歴は残ります。'))return;try{const d=await adminPost('/api/admin/employee-delete',{id});alert(d.message);await Promise.all([loadAdminEmployees(),loadEmployees(),loadHistory(),checkStatus()]);}catch(e){alert(e.message);}});});
-        }
-        ensure();
-        return result;
-      };
-      wrapped.__staffWrapped=true;
-      window.loadAdminEmployees=wrapped;
-    }
   }
-  ensure();
-  setInterval(ensure,1000);
+  function wrapLoader(){
+    if(typeof loadAdminEmployees!=='function'||loadAdminEmployees.__staffWrapped)return;
+    const original=loadAdminEmployees;
+    const wrapped=async function(){const result=await original.apply(this,arguments);renderStaff();bindAdd();return result;};
+    wrapped.__staffWrapped=true;
+    window.loadAdminEmployees=wrapped;
+  }
+  wrapLoader();bindAdd();
+  setInterval(function(){wrapLoader();bindAdd();},1000);
 })();
-</script></script></body></html>'''
+</script></body></html>'''
           if 'data-delete-id' not in s:
               if marker_script not in s:
                   raise SystemExit('script marker not found')
