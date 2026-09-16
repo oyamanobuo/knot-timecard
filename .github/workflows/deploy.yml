@@ -14,6 +14,87 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Restore staff add delete controls
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('public/index.html')
+          s = p.read_text(encoding='utf-8')
+          heading = '<h3 class="section-title" style="margin-top:18px">スタッフ情報</h3><div id="adminEmployees"></div>'
+          if 'id="addEmployeeBtn"' not in s and heading in s:
+              s = s.replace(heading, '<h3 class="section-title" style="margin-top:18px">スタッフ情報</h3><div class="row" style="margin-bottom:10px"><button id="addEmployeeBtn" class="primary" type="button">＋ スタッフを追加</button></div><div id="adminEmployees"></div>', 1)
+          marker = '</script></body></html>'
+          if 'id="staffAdminRestoreV1"' not in s:
+              script = r'''<script id="staffAdminRestoreV1">
+(function(){
+  async function staffAdminPost(path, body){
+    const payload=Object.assign({},body||{},{adminPin:window.adminPinValue});
+    const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await r.json().catch(function(){return {ok:false,message:'サーバー応答を読めませんでした。'};});
+    if(!r.ok||!d.ok) throw new Error(d.message||'処理に失敗しました。');
+    return d;
+  }
+  function bindAdd(){
+    const b=document.getElementById('addEmployeeBtn');
+    if(!b||b.dataset.bound)return;
+    b.dataset.bound='1';
+    b.addEventListener('click',function(){
+      if(!document.getElementById('addEmployeeModal')){
+        const m=document.createElement('div');m.id='addEmployeeModal';m.className='modalback';
+        m.innerHTML='<div class="modal"><h2>スタッフを追加</h2><div class="field"><label>名前</label><input id="newEmpName" type="text" maxlength="50" placeholder="例：鈴木"></div><div class="field"><label>時給（円）</label><input id="newEmpWage" type="number" min="0" step="1" value="0"></div><div class="field"><label>交通費（1勤務あたり・円）</label><input id="newEmpTransport" type="number" min="0" step="1" value="0"></div><div class="field"><label>PIN（4桁）</label><input id="newEmpPin" type="password" inputmode="numeric" maxlength="4" placeholder="例：5678"></div><div id="newEmpMsg" class="msg"></div><div class="row"><button id="saveNewEmployeeBtn" class="primary" type="button">追加する</button><button id="closeAddEmployeeBtn" class="secondary" type="button">キャンセル</button></div></div>';
+        document.body.appendChild(m);
+        document.getElementById('closeAddEmployeeBtn').addEventListener('click',function(){m.classList.remove('show');});
+        document.getElementById('saveNewEmployeeBtn').addEventListener('click',async function(){
+          const name=document.getElementById('newEmpName').value.trim();
+          const wage=Math.max(0,Math.floor(Number(document.getElementById('newEmpWage').value||0)));
+          const transport=Math.max(0,Math.floor(Number(document.getElementById('newEmpTransport').value||0)));
+          const pin=document.getElementById('newEmpPin').value.trim();
+          const msg=document.getElementById('newEmpMsg');
+          if(!name){msg.textContent='名前を入力してください。';return;}
+          if(!/^\d{4}$/.test(pin)){msg.textContent='PINは4桁の数字です。';return;}
+          msg.textContent='追加中…';
+          try{const d=await staffAdminPost('/api/admin/employee-create',{name:name,hourlyWage:wage,transportAllowance:transport,pin:pin});m.classList.remove('show');alert(d.message);await window.loadAdminEmployees();await loadEmployees();}catch(e){msg.textContent=e.message;}
+        });
+      }
+      document.getElementById('newEmpName').value='';document.getElementById('newEmpWage').value='0';document.getElementById('newEmpTransport').value='0';document.getElementById('newEmpPin').value='';document.getElementById('newEmpMsg').textContent='';document.getElementById('addEmployeeModal').classList.add('show');setTimeout(function(){document.getElementById('newEmpName').focus();},50);
+    });
+  }
+  function renderStaff(){
+    const box=document.getElementById('adminEmployees');
+    if(!box||!Array.isArray(window.adminEmployees))return;
+    const list=window.adminEmployees;
+    box.innerHTML=list.map(function(e){
+      const id=String(e.id||'');
+      const name=String(e.name||'');
+      const safeName=name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      const safeId=id.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      return '<div class="admin-card"><b>'+safeName+'</b><div class="small">時給：'+Number(e.hourly_wage||0).toLocaleString()+'円　交通費：'+Number(e.transport_allowance||0).toLocaleString()+'円／勤務</div><div class="row" style="margin-top:8px"><button class="secondary editbtn" type="button" data-staff-edit="'+safeId+'">編集</button><button class="danger editbtn" type="button" data-staff-delete="'+safeId+'">削除</button></div></div>';
+    }).join('');
+    box.querySelectorAll('[data-staff-edit]').forEach(function(btn){btn.addEventListener('click',function(){openEmployee(btn.getAttribute('data-staff-edit'));});});
+    box.querySelectorAll('[data-staff-delete]').forEach(function(btn){btn.addEventListener('click',async function(){
+      const id=btn.getAttribute('data-staff-delete');const emp=list.find(function(x){return String(x.id)===id;});if(!emp)return;
+      if(!confirm(emp.name+'さんをスタッフ一覧から削除しますか？\n\n過去の打刻履歴は残ります。'))return;
+      try{const d=await staffAdminPost('/api/admin/employee-delete',{id:id});alert(d.message);await window.loadAdminEmployees();await loadEmployees();}catch(e){alert(e.message);}
+    });});
+  }
+  function wrap(){
+    bindAdd();
+    if(typeof window.loadAdminEmployees==='function'&&!window.loadAdminEmployees.__staffRestoreV1){
+      const original=window.loadAdminEmployees;
+      const wrapped=async function(){const r=await original.apply(this,arguments);renderStaff();bindAdd();return r;};
+      wrapped.__staffRestoreV1=true;window.loadAdminEmployees=wrapped;
+    }
+    if(document.getElementById('adminEmployees')&&Array.isArray(window.adminEmployees)&&window.adminEmployees.length)renderStaff();
+  }
+  wrap();setInterval(wrap,1000);
+})();
+</script>'''
+              if marker not in s:
+                  raise SystemExit('HTML end marker not found')
+              s = s.replace(marker, script + marker, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+
       - name: Install Wrangler 4
         run: npm install --no-save wrangler@4.132.0
 
