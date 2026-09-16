@@ -16,5 +16,6 @@
       "database_id": "136612ea-35a8-4c25-a4c8-57856071484d",
       "migrations_dir": "migrations"
     }
-  ]
+  ],
+  "// staff_ui_restore": "temporary workflow trigger"
 }
