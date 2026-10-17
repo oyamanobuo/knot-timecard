@@ -74,7 +74,36 @@ async function saveEmployee(){if(!editingEmployee)return;const name=$("empName")
 function yen(n){return Number(n||0).toLocaleString("ja-JP")+"円"}
 function workHours(min){return Math.floor(min/60)+":"+String(min%60).padStart(2,"0")}
 function setPayrollMonth(){const d=new Date();$("payrollMonth").value=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")}
-async function loadPayroll(csv){const start=$("payrollStart").value,end=$("payrollEnd").value,month=$("payrollMonth").value,msg=$("payrollMsg");let body,label;if(start&&end){if(end<start){msg.textContent="終了日は開始日以降にしてください。";return}body={startDate:start,endDate:end,roundingMode:$("payrollRounding").value};label=start+"〜"+end}else if(month){body={month,roundingMode:$("payrollRounding").value};label=month}else{msg.textContent="対象月、または開始日・終了日を指定してください。";return}msg.textContent="計算中…";try{const d=await adminPost("/api/admin/payroll",body),rows=d.rows||[],roundingLabel=$("payrollRounding").value==="30"?"30分刻み":"1分刻み";const total=rows.reduce((a,r)=>({wage:a.wage+r.wage,transport:a.transport+r.transport,total:a.total+r.total,minutes:a.minutes+r.minutes,days:a.days+r.workDays}),{wage:0,transport:0,total:0,minutes:0,days:0});$("payrollRows").innerHTML=rows.map(r=>{const detail=(r.days||[]).map(dd=>`<tr><td>${dd.date}</td><td>${dd.in?fmtTime(dd.in):"—"}</td><td>${dd.out?fmtTime(dd.out):"未退勤"}</td><td>${workHours(dd.minutes)}</td></tr>`).join("")||'<tr><td colspan="4">勤務記録はありません。</td></tr>';return `<tr class="payroll-row" onclick="togglePayrollDetail('${r.employeeId}')"><td>▸ ${esc(r.name)}</td><td>${r.workDays}日</td><td>${workHours(r.minutes)}</td><td>${yen(r.hourlyWage)}</td><td>${yen(r.wage)}</td><td>${yen(r.transport)}</td><td>${yen(r.total)}</td><td>${r.incomplete?"未退勤あり":""}</td></tr><tr id="pd_${r.employeeId}" class="payroll-detail-row" style="display:none"><td colspan="8"><div class="tablewrap"><table><thead><tr><th>日付</th><th>出勤</th><th>退勤</th><th>勤務時間</th></tr></thead><tbody>${detail}</tbody></table></div></td></tr>`}).join("")+`<tr><td><b>合計</b></td><td><b>${total.days}日</b></td><td><b>${workHours(total.minutes)}</b></td><td>—</td><td><b>${yen(total.wage)}</b></td><td><b>${yen(total.transport)}</b></td><td><b>${yen(total.total)}</b></td><td></td></tr>`;msg.textContent=rows.length+"名を集計しました（"+label+"／"+roundingLabel+"）。行をタップすると日ごとの内訳が見られます。";msg.className="msg success";if(csv){const lines=[["対象期間","計算単位","名前","勤務日数","勤務時間","時給","給与","交通費","支給額","備考"],...rows.map(r=>[label,roundingLabel,r.name,r.workDays,workHours(r.minutes),r.hourlyWage,r.wage,r.transport,r.total,r.incomplete?"未退勤あり":""]),[label,roundingLabel,"合計",total.days,workHours(total.minutes),"",total.wage,total.transport,total.total,""]];const text="\ufeff"+lines.map(a=>a.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\r\n");const blob=new Blob([text],{type:"text/csv;charset=utf-8"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="KNOT_給与計算_"+label.replace(/[^0-9A-Za-z〜-]/g,"_")+".csv";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}}catch(e){msg.className="msg";msg.textContent=e.message}}
+async function loadPayroll(csv){const start=$("payrollStart").value,end=$("payrollEnd").value,month=$("payrollMonth").value,msg=$("payrollMsg");let body,label;if(start&&end){if(end<start){msg.textContent="終了日は開始日以降にしてください。";return}body={startDate:start,endDate:end,roundingMode:$("payrollRounding").value};label=start+"〜"+end}else if(month){body={month,roundingMode:$("payrollRounding").value};label=month}else{msg.textContent="対象月、または開始日・終了日を指定してください。";return}msg.textContent="計算中…";try{const d=await adminPost("/api/admin/payroll",body),rows=d.rows||[],roundingLabel=$("payrollRounding").value==="30"?"30分刻み":"1分刻み";const total=rows.reduce((a,r)=>({wage:a.wage+r.wage,transport:a.transport+r.transport,total:a.total+r.total,minutes:a.minutes+r.minutes,days:a.days+r.workDays}),{wage:0,transport:0,total:0,minutes:0,days:0});$("payrollRows").innerHTML=rows.map(r=>{const detail=(r.days||[]).map(dd=>`<tr><td>${dd.date}</td><td>${dd.in?fmtTime(dd.in):"—"}</td><td>${dd.out?fmtTime(dd.out):"未退勤"}</td><td>${workHours(dd.minutes)}</td></tr>`).join("")||'<tr><td colspan="4">勤務記録はありません。</td></tr>';return `<tr class="payroll-row" onclick="togglePayrollDetail('${r.employeeId}')"><td>▸ ${esc(r.name)}</td><td>${r.workDays}日</td><td>${workHours(r.minutes)}</td><td>${yen(r.hourlyWage)}</td><td>${yen(r.wage)}</td><td>${yen(r.transport)}</td><td>${yen(r.total)}</td><td>${r.incomplete?"未退勤あり":""}</td></tr><tr id="pd_${r.employeeId}" class="payroll-detail-row" style="display:none"><td colspan="8"><div class="tablewrap"><table><thead><tr><th>日付</th><th>出勤</th><th>退勤</th><th>勤務時間</th></tr></thead><tbody>${detail}</tbody></table></div></td></tr>`}).join("")+`<tr><td><b>合計</b></td><td><b>${total.days}日</b></td><td><b>${workHours(total.minutes)}</b></td><td>—</td><td><b>${yen(total.wage)}</b></td><td><b>${yen(total.transport)}</b></td><td><b>${yen(total.total)}</b></td><td></td></tr>`;msg.textContent=rows.length+"名を集計しました（"+label+"／"+roundingLabel+"）。行をタップすると日ごとの内訳が見られます。";msg.className="msg success";if(csv){
+const lines=[["日付","計算単位","名前","実際の出勤","実際の退勤","勤務時間（計算用）","時給","給与","交通費","支給額","備考"]];
+for(const r of rows){
+ const byDate=new Map();
+ for(const dd of (r.days||[])){
+  if(!byDate.has(dd.date))byDate.set(dd.date,{date:dd.date,ins:[],outs:[],minutes:0,shifts:0,incomplete:false});
+  const day=byDate.get(dd.date);
+  if(dd.in)day.ins.push(fmtTime(dd.in));
+  if(dd.out)day.outs.push(fmtTime(dd.out));
+  day.minutes+=Number(dd.minutes||0);
+  if(dd.in&&dd.out)day.shifts++;
+  if(dd.incomplete)day.incomplete=true;
+ }
+ const days=[...byDate.values()].sort((a,b)=>a.date.localeCompare(b.date));
+ const dailyWages=days.map(day=>Math.floor(day.minutes*r.hourlyWage/60));
+ let remainder=r.wage-dailyWages.reduce((a,v)=>a+v,0);
+ for(let i=dailyWages.length-1;i>=0&&remainder>0;i--){if(days[i].minutes>0){dailyWages[i]+=remainder;remainder=0}}
+ for(let i=0;i<days.length;i++){
+  const day=days[i],transport=day.shifts*r.transportAllowance,wage=dailyWages[i]||0;
+  lines.push([day.date,roundingLabel,r.name,day.ins.join(" / ")||"—",day.outs.join(" / ")||(day.incomplete?"未退勤":"—"),workHours(day.minutes),r.hourlyWage,wage,transport,wage+transport,day.incomplete?"未退勤あり":""]);
+ }
+ if(!days.length)lines.push([label,roundingLabel,r.name,"—","—","0:00",r.hourlyWage,0,0,0,"勤務記録なし"]);
+}
+lines.push(["","","","","","","","","","",""]);
+lines.push(["従業員別合計","計算単位","名前","勤務日数","勤務時間","時給","給与","交通費","支給額","備考"]);
+for(const r of rows)lines.push([label,roundingLabel,r.name+" 合計",r.workDays,workHours(r.minutes),r.hourlyWage,r.wage,r.transport,r.total,r.incomplete?"未退勤あり":""]);
+const csvText="\\ufeff"+lines.map(a=>a.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\\r\\n");
+const blob=new Blob([csvText],{type:"text/csv;charset=utf-8"}),a=document.createElement("a");
+a.href=URL.createObjectURL(blob);a.download="KNOT_給与計算_"+label.replace(/[^0-9A-Za-z〜-]/g,"_")+".csv";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)
+}}catch(e){msg.className="msg";msg.textContent=e.message}}
 function togglePayrollDetail(id){const el=$("pd_"+id);if(!el)return;const open=el.style.display!=="none";el.style.display=open?"none":"table-row";const label=el.previousElementSibling?.querySelector("td:first-child");if(label)label.textContent=(open?"▸ ":"▾ ")+label.textContent.replace(/^[▸▾]\s*/,"")}
 setPayrollMonth();
 (async()=>{await checkNetwork();await checkStatus();await loadEmployees();await loadHistory()})();
