@@ -161,6 +161,27 @@ const blob=new Blob([csvText],{type:"text/csv;charset=utf-8"}),a=document.create
 a.href=URL.createObjectURL(blob);a.download="KNOT_給与計算_"+label.replace(/[^0-9A-Za-z〜-]/g,"_")+".csv";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)
 }}catch(e){msg.className="msg";msg.textContent=e.message}}
 function togglePayrollDetail(id){const el=$("pd_"+id);if(!el)return;const open=el.style.display!=="none";el.style.display=open?"none":"table-row";const label=el.previousElementSibling?.querySelector("td:first-child");if(label)label.textContent=(open?"▸ ":"▾ ")+label.textContent.replace(/^[▸▾]\s*/,"")}
+function enableEnterToSubmit(){
+ const pairs=[
+  ["pin","punchBtn"],
+  ["currentPin","changePinBtn"],["newPin","changePinBtn"],["confirmPin","changePinBtn"],
+  ["adminPin",null],
+  ["adminCurrentPin","adminPinChangeBtn"],["adminNewPin","adminPinChangeBtn"],["adminConfirmPin","adminPinChangeBtn"],
+  ["empPin",null],["newEmpPin",null]
+ ];
+ for(const [inputId,buttonId] of pairs){
+  const input=$(inputId);if(!input)continue;
+  input.addEventListener("keydown",e=>{
+   if(e.key!=="Enter")return;
+   e.preventDefault();
+   if(buttonId){$(buttonId)?.click();return}
+   if(inputId==="adminPin")loginAdmin();
+   else if(inputId==="empPin")saveEmployee();
+   else if(inputId==="newEmpPin")saveNewEmployee();
+  });
+ }
+}
+enableEnterToSubmit();
 setPayrollMonth();
 (async()=>{await checkNetwork();await checkStatus();await loadEmployees();await loadHistory()})();
 </script></body></html>
